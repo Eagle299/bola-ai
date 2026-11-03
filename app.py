@@ -69,7 +69,11 @@ def buat_zip(hasil, prompt):
         z.writestr("semua_hasil.md", gabungan)
     return buf.getvalue()
 
-
+@st.cache_data(ttl=600)
+def daftar_model_gratis():
+    r = requests.get("https://openrouter.ai/api/v1/models", timeout=30)
+    return sorted(m["id"] for m in r.json()["data"] if m["id"].endswith(":free"))
+    
 st.set_page_config(page_title="Multi-AI Bola", layout="wide")
 st.title("⚽ Multi-AI Analisis Bola")
 
