@@ -136,7 +136,13 @@ if st.button("🚀 Kirim ke semua AI", type="primary"):
     ex = ThreadPoolExecutor(max_workers=len(pilih))
     futures = [ex.submit(worker, n, prompt, keys, status, hasil, max_retry)
                for n in pilih]
+    def tampil(n):
+        teks = "**" + n + "** (" + MODELS[n][1] + "): " + status[n]
+        boxes[n].write(teks)
 
     while not all(f.done() for f in futures):
         for n in pilih:
-            boxes[n].write(f"**{n}** ({MODELS[n][1]}): 
+            tampil(n)
+        time.sleep(0.5)
+    for n in pilih:
+        tampil(n)
