@@ -76,6 +76,8 @@ def daftar_model_gratis():
     
 st.set_page_config(page_title="Multi-AI Bola", layout="wide")
 st.title("⚽ Multi-AI Analisis Bola")
+with st.expander("🆓 Daftar model gratis OpenRouter yang aktif sekarang"):
+    st.code("\n".join(daftar_model_gratis()))
 
 with st.expander("🔑 API Key", expanded=not get_secret("OR_KEY")):
     key_or = st.text_input("OpenRouter API Key", type="password",
