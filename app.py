@@ -4,20 +4,20 @@ from concurrent.futures import ThreadPoolExecutor
 
 OPENROUTER = "https://openrouter.ai/api/v1/chat/completions"
 GEMINI = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+RETRY_CODES = {408, 429, 500, 502, 503, 504}
 
-# nama: (url, model, jenis_key)
-# Nama model gratis sering berubah. Cek di openrouter.ai/models (filter: Free)
-MODELS = {
-    "Gemini":   (GEMINI, "gemini-2.5-flash", "gemini"),
-    "DeepSeek": (OPENROUTER, "deepseek/deepseek-r1:free", "or"),
-    "GLM":      (OPENROUTER, "z-ai/glm-4.5-air:free", "or"),
-    "Kimi":     (OPENROUTER, "moonshotai/kimi-k2:free", "or"),
-    "Qwen":     (OPENROUTER, "qwen/qwen3-235b-a22b:free", "or"),
-    "Llama":    (OPENROUTER, "meta-llama/llama-3.3-70b-instruct:free", "or"),
-    "Mistral":  (OPENROUTER, "mistralai/mistral-small-3.2-24b-instruct:free", "or"),
+# nama AI -> kata kunci untuk mencari model gratis yang cocok
+SLOT = {
+    "DeepSeek": "deepseek",
+    "GLM": "glm",
+    "Kimi": "kimi",
+    "Qwen": "qwen",
+    "Llama": "llama",
+    "Mistral": "mistral",
+    "GPT-OSS": "gpt-oss",
 }
 
-RETRY_CODES = {408, 429, 500, 502, 503, 504}
+MODELS = {}  # diisi otomatis di bawah
 
 
 def get_secret(name):
@@ -25,6 +25,15 @@ def get_secret(name):
         return st.secrets[name]
     except Exception:
         return ""
+
+
+@st.cache_data(ttl=600)
+def daftar_model_gratis():
+    try:
+        r = requests.get("https://openrouter.ai/api/v1/models", timeout=30)
+        return sorted(m["id"] for m in r.json()["data"] if m["id"].endswith(":free"))
+    except Exception:
+        return []
 
 
 def worker(nama, prompt, keys, status, hasil, max_retry):
@@ -69,23 +78,43 @@ def buat_zip(hasil, prompt):
         z.writestr("semua_hasil.md", gabungan)
     return buf.getvalue()
 
-@st.cache_data(ttl=600)
-def daftar_model_gratis():
-    r = requests.get("https://openrouter.ai/api/v1/models", timeout=30)
-    return sorted(m["id"] for m in r.json()["data"] if m["id"].endswith(":free"))
-    
+
 st.set_page_config(page_title="Multi-AI Bola", layout="wide")
 st.title("⚽ Multi-AI Analisis Bola")
-with st.expander("🆓 Daftar model gratis OpenRouter yang aktif sekarang"):
-    st.code("\n".join(daftar_model_gratis()))
 
+# ---------- API KEY ----------
 with st.expander("🔑 API Key", expanded=not get_secret("OR_KEY")):
     key_or = st.text_input("OpenRouter API Key", type="password",
                            value=get_secret("OR_KEY"))
     key_gemini = st.text_input("Google AI Studio (Gemini) API Key",
                                type="password", value=get_secret("GEMINI_KEY"))
-keys = {"or": key_or, "gemini": key_gemini}
+keys = {"or": key_or.strip().strip('"'), "gemini": key_gemini.strip().strip('"')}
+st.caption(
+    f"OpenRouter key: {'✅ ' + keys['or'][:8] + '...' if keys['or'] else '❌ kosong'} | "
+    f"Gemini key: {'✅ ' + keys['gemini'][:6] + '...' if keys['gemini'] else '❌ kosong'}"
+)
 
+# ---------- PILIH MODEL ----------
+gratis = daftar_model_gratis()
+with st.expander("⚙️ Pilih model (otomatis dari daftar gratis yang aktif)", expanded=True):
+    gem = st.text_input("Model Gemini", value="gemini-3.8-flash")
+    MODELS["Gemini"] = (GEMINI, gem.strip(), "gemini")
+
+    if not gratis:
+        st.warning("Gagal mengambil daftar model gratis OpenRouter. Refresh halaman.")
+    else:
+        st.caption(f"Ditemukan {len(gratis)} model gratis aktif di OpenRouter.")
+
+    opsi = ["(tidak dipakai)"] + gratis
+    cols = st.columns(2)
+    for i, (nama, kw) in enumerate(SLOT.items()):
+        cocok = [m for m in gratis if kw in m.lower()]
+        idx = opsi.index(cocok[0]) if cocok else 0
+        pilihan = cols[i % 2].selectbox(nama, opsi, index=idx, key=f"m_{nama}")
+        if pilihan != "(tidak dipakai)":
+            MODELS[nama] = (OPENROUTER, pilihan, "or")
+
+# ---------- PROMPT ----------
 prompt = st.text_area("Prompt analisis", height=250)
 c1, c2 = st.columns(2)
 pilih = c1.multiselect("AI yang dipakai", list(MODELS), default=list(MODELS))
@@ -110,23 +139,4 @@ if st.button("🚀 Kirim ke semua AI", type="primary"):
 
     while not all(f.done() for f in futures):
         for n in pilih:
-            boxes[n].write(f"**{n}**: {status[n]}")
-        time.sleep(0.5)
-    for n in pilih:
-        boxes[n].write(f"**{n}**: {status[n]}")
-
-    gagal = [n for n in pilih if n not in hasil]
-    if gagal:
-        st.warning(f"AI yang gagal: {', '.join(gagal)}")
-    else:
-        st.success("Semua AI berhasil! 🎉")
-
-    st.session_state["hasil"] = hasil
-    st.session_state["zip"] = buat_zip(hasil, prompt)
-
-if "zip" in st.session_state:
-    st.download_button("⬇️ Download semua (.zip berisi file .md)",
-                       st.session_state["zip"], file_name="hasil_analisis.zip")
-    for nama, teks in st.session_state["hasil"].items():
-        with st.expander(f"📄 {nama}"):
-            st.markdown(teks)
+            boxes[n].write(f"**{n}** ({MODELS[n][1]}): 
